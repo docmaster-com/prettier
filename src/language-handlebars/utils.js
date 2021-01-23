@@ -1,5 +1,28 @@
 "use strict";
 
+const htmlVoidElements = require("html-void-elements");
+
+function isLastNodeOfSiblings(path) {
+  const node = path.getValue();
+  const parentNode = path.getParentNode(0);
+
+  if (
+    isParentOfSomeType(path, ["ElementNode"]) &&
+    parentNode.children[parentNode.children.length - 1] === node
+  ) {
+    return true;
+  }
+
+  if (
+    isParentOfSomeType(path, ["Block"]) &&
+    parentNode.body[parentNode.body.length - 1] === node
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
 function isUppercase(string) {
   return string.toUpperCase() === string;
 }
@@ -9,6 +32,15 @@ function isGlimmerComponent(node) {
     isNodeOfSomeType(node, ["ElementNode"]) &&
     typeof node.tag === "string" &&
     (isUppercase(node.tag[0]) || node.tag.includes("."))
+  );
+}
+
+const voidTags = new Set(htmlVoidElements);
+function isVoid(node) {
+  return (
+    (isGlimmerComponent(node) &&
+      node.children.every((n) => isWhitespaceNode(n))) ||
+    voidTags.has(node.tag)
   );
 }
 
@@ -38,7 +70,8 @@ function isNextNodeOfSomeType(path, types) {
 function getSiblingNode(path, offset) {
   const node = path.getValue();
   const parentNode = path.getParentNode(0) || {};
-  const children = parentNode.children || parentNode.body || [];
+  const children =
+    parentNode.children || parentNode.body || parentNode.parts || [];
   const index = children.indexOf(node);
   return index !== -1 && children[index + offset];
 }
@@ -71,10 +104,11 @@ module.exports = {
   getNextNode,
   getPreviousNode,
   hasPrettierIgnore,
-  isGlimmerComponent,
+  isLastNodeOfSiblings,
   isNextNodeOfSomeType,
   isNodeOfSomeType,
   isParentOfSomeType,
   isPreviousNodeOfSomeType,
+  isVoid,
   isWhitespaceNode,
 };

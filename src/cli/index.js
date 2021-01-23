@@ -1,16 +1,18 @@
 "use strict";
 
+// eslint-disable-next-line no-restricted-modules
 require("please-upgrade-node")(require("../../package.json"));
 
-const prettier = require("../../index");
-const stringify = require("json-stable-stringify");
-const util = require("./util");
+const stringify = require("fast-json-stable-stringify");
+// eslint-disable-next-line no-restricted-modules
+const prettier = require("../index");
+const core = require("./core");
 
 function run(args) {
-  const context = util.createContext(args);
+  const context = new core.Context(args);
 
   try {
-    util.initContext(context);
+    context.initContext();
 
     context.logger.debug(`normalized argv: ${JSON.stringify(context.argv)}`);
 
@@ -24,12 +26,12 @@ function run(args) {
       process.exit(1);
     }
 
-    if (context.argv["find-config-path"] && context.filePatterns.length) {
+    if (context.argv["find-config-path"] && context.filePatterns.length > 0) {
       context.logger.error("Cannot use --find-config-path with multiple files");
       process.exit(1);
     }
 
-    if (context.argv["file-info"] && context.filePatterns.length) {
+    if (context.argv["file-info"] && context.filePatterns.length > 0) {
       context.logger.error("Cannot use --file-info with multiple files");
       process.exit(1);
     }
@@ -42,8 +44,8 @@ function run(args) {
     if (context.argv.help !== undefined) {
       context.logger.log(
         typeof context.argv.help === "string" && context.argv.help !== ""
-          ? util.createDetailedUsage(context, context.argv.help)
-          : util.createUsage(context)
+          ? core.createDetailedUsage(context, context.argv.help)
+          : core.createUsage(context)
       );
       process.exit(0);
     }
@@ -57,21 +59,21 @@ function run(args) {
       process.exit(0);
     }
 
-    const hasFilePatterns = context.filePatterns.length !== 0;
+    const hasFilePatterns = context.filePatterns.length > 0;
     const useStdin =
       !hasFilePatterns &&
       (!process.stdin.isTTY || context.args["stdin-filepath"]);
 
     if (context.argv["find-config-path"]) {
-      util.logResolvedConfigPathOrDie(context);
+      core.logResolvedConfigPathOrDie(context);
     } else if (context.argv["file-info"]) {
-      util.logFileInfoOrDie(context);
+      core.logFileInfoOrDie(context);
     } else if (useStdin) {
-      util.formatStdin(context);
+      core.formatStdin(context);
     } else if (hasFilePatterns) {
-      util.formatFiles(context);
+      core.formatFiles(context);
     } else {
-      context.logger.log(util.createUsage(context));
+      context.logger.log(core.createUsage(context));
       process.exit(1);
     }
   } catch (error) {

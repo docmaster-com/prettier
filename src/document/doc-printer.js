@@ -3,6 +3,7 @@
 const { getStringWidth } = require("../common/util");
 const { convertEndOfLineToChars } = require("../common/end-of-line");
 const { concat, fill, cursor } = require("./doc-builders");
+const { isConcat, getDocParts } = require("./doc-utils");
 
 /** @type {Record<symbol, typeof MODE_BREAK | typeof MODE_FLAT>} */
 let groupModeMap;
@@ -18,18 +19,26 @@ function makeIndent(ind, options) {
   return generateInd(ind, { type: "indent" }, options);
 }
 
-function makeAlign(ind, n, options) {
-  return n === -Infinity
-    ? ind.root || rootIndent()
-    : n < 0
-    ? generateInd(ind, { type: "dedent" }, options)
-    : !n
-    ? ind
-    : n.type === "root"
-    ? { ...ind, root: ind }
-    : typeof n === "string"
-    ? generateInd(ind, { type: "stringAlign", n }, options)
-    : generateInd(ind, { type: "numberAlign", n }, options);
+function makeAlign(indent, n, options) {
+  if (n === Number.NEGATIVE_INFINITY) {
+    return indent.root || rootIndent();
+  }
+
+  if (n < 0) {
+    return generateInd(indent, { type: "dedent" }, options);
+  }
+
+  if (!n) {
+    return indent;
+  }
+
+  if (n.type === "root") {
+    return { ...indent, root: indent };
+  }
+
+  const alignType = typeof n === "string" ? "stringAlign" : "numberAlign";
+
+  return generateInd(indent, { type: alignType, n }, options);
 }
 
 function generateInd(ind, newPart, options) {
@@ -121,13 +130,13 @@ function trim(out) {
   while (
     out.length > 0 &&
     typeof out[out.length - 1] === "string" &&
-    out[out.length - 1].match(/^[ \t]*$/)
+    /^[\t ]*$/.test(out[out.length - 1])
   ) {
     trimCount += out.pop().length;
   }
 
-  if (out.length && typeof out[out.length - 1] === "string") {
-    const trimmed = out[out.length - 1].replace(/[ \t]*$/, "");
+  if (out.length > 0 && typeof out[out.length - 1] === "string") {
+    const trimmed = out[out.length - 1].replace(/[\t ]*$/, "");
     trimCount += out[out.length - 1].length - trimmed.length;
     out[out.length - 1] = trimmed;
   }
@@ -159,14 +168,13 @@ function fits(next, restCommands, width, options, mustBeFlat) {
       out.push(doc);
 
       width -= getStringWidth(doc);
+    } else if (isConcat(doc)) {
+      const parts = getDocParts(doc);
+      for (let i = parts.length - 1; i >= 0; i--) {
+        cmds.push([ind, mode, parts[i]]);
+      }
     } else {
       switch (doc.type) {
-        case "concat":
-          for (let i = doc.parts.length - 1; i >= 0; i--) {
-            cmds.push([ind, mode, doc.parts[i]]);
-          }
-
-          break;
         case "indent":
           cmds.push([makeIndent(ind, options), mode, doc.contents]);
 
@@ -249,23 +257,22 @@ function printDocToString(doc, options) {
   let shouldRemeasure = false;
   let lineSuffix = [];
 
-  while (cmds.length !== 0) {
+  while (cmds.length > 0) {
     const [ind, mode, doc] = cmds.pop();
 
     if (typeof doc === "string") {
-      out.push(doc);
-
-      pos += getStringWidth(doc);
+      const formatted = newLine !== "\n" ? doc.replace(/\n/g, newLine) : doc;
+      out.push(formatted);
+      pos += getStringWidth(formatted);
+    } else if (isConcat(doc)) {
+      const parts = getDocParts(doc);
+      for (let i = parts.length - 1; i >= 0; i--) {
+        cmds.push([ind, mode, parts[i]]);
+      }
     } else {
       switch (doc.type) {
         case "cursor":
           out.push(cursor.placeholder);
-
-          break;
-        case "concat":
-          for (let i = doc.parts.length - 1; i >= 0; i--) {
-            cmds.push([ind, mode, doc.parts[i]]);
-          }
 
           break;
         case "indent":
@@ -489,7 +496,7 @@ function printDocToString(doc, options) {
             // fallthrough
 
             case MODE_BREAK:
-              if (lineSuffix.length) {
+              if (lineSuffix.length > 0) {
                 cmds.push([ind, mode, doc]);
                 cmds.push(...lineSuffix.reverse());
                 lineSuffix = [];
@@ -514,6 +521,13 @@ function printDocToString(doc, options) {
           break;
         default:
       }
+    }
+
+    // Flush remaining line-suffix contents at the end of the document, in case
+    // there is no new line after the line-suffix.
+    if (cmds.length === 0 && lineSuffix.length > 0) {
+      cmds.push(...lineSuffix.reverse());
+      lineSuffix = [];
     }
   }
 

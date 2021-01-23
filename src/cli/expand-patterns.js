@@ -5,7 +5,7 @@ const fs = require("fs");
 const fastGlob = require("fast-glob");
 const flat = require("lodash/flatten");
 
-/** @typedef {import('./util').Context} Context */
+/** @typedef {import('./context').Context} Context */
 
 /**
  * @param {Context} context
@@ -109,7 +109,9 @@ function* expandPatternsInternal(context) {
     try {
       result = fastGlob.sync(glob, globOptions);
     } catch ({ message }) {
+      /* istanbul ignore next */
       yield { error: `${errorMessages.globError[type]}: ${input}\n${message}` };
+      /* istanbul ignore next */
       continue;
     }
 
@@ -212,4 +214,7 @@ function fixWindowsSlashes(pattern) {
   return isWindows ? pattern.replace(/\\/g, "/") : pattern;
 }
 
-module.exports = expandPatterns;
+module.exports = {
+  expandPatterns,
+  fixWindowsSlashes,
+};

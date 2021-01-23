@@ -1,13 +1,14 @@
 "use strict";
 
+const fs = require("fs");
+const path = require("path");
 const uniqBy = require("lodash/uniqBy");
 const partition = require("lodash/partition");
-const fs = require("fs");
 const globby = require("globby");
-const path = require("path");
-const thirdParty = require("./third-party");
-const internalPlugins = require("./internal-plugins");
 const mem = require("mem");
+const internalPlugins = require("../languages");
+const thirdParty = require("./third-party");
+const resolve = require("./resolve");
 
 const memoizedLoad = mem(load, { cacheKey: JSON.stringify });
 const memoizedSearch = mem(findPluginsInNodeModules);
@@ -25,7 +26,7 @@ function load(plugins, pluginSearchDirs) {
     pluginSearchDirs = [];
   }
   // unless pluginSearchDirs are provided, auto-load plugins from node_modules that are parent to Prettier
-  if (!pluginSearchDirs.length) {
+  if (pluginSearchDirs.length === 0) {
     const autoLoadDir = thirdParty.findParentDir(__dirname, "node_modules");
     if (autoLoadDir) {
       pluginSearchDirs = [autoLoadDir];
@@ -42,14 +43,10 @@ function load(plugins, pluginSearchDirs) {
       let requirePath;
       try {
         // try local files
-        requirePath = eval("require").resolve(
-          path.resolve(process.cwd(), pluginName)
-        );
+        requirePath = resolve(path.resolve(process.cwd(), pluginName));
       } catch (_) {
         // try node modules
-        requirePath = eval("require").resolve(pluginName, {
-          paths: [process.cwd()],
-        });
+        requirePath = resolve(pluginName, { paths: [process.cwd()] });
       }
 
       return {
@@ -85,9 +82,7 @@ function load(plugins, pluginSearchDirs) {
 
       return memoizedSearch(nodeModulesDir).map((pluginName) => ({
         name: pluginName,
-        requirePath: eval("require").resolve(pluginName, {
-          paths: [resolvedPluginSearchDir],
-        }),
+        requirePath: resolve(pluginName, { paths: [resolvedPluginSearchDir] }),
       }));
     })
     .reduce((a, b) => a.concat(b), []);

@@ -1,6 +1,6 @@
 "use strict";
 
-const prettier = require("prettier/local");
+const prettier = require("prettier-local");
 const runPrettier = require("../runPrettier");
 
 describe("show version with --version", () => {
@@ -51,7 +51,11 @@ describe("throw error with --help not-found", () => {
 });
 
 describe("show warning with --help not-found (typo)", () => {
-  runPrettier("cli", ["--help", "parserr"]).test({
+  runPrettier("cli", [
+    "--help",
+    // cspell:disable-next-line
+    "parserr",
+  ]).test({
     status: 0,
   });
 });

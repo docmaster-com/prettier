@@ -62,13 +62,11 @@ function runPrettier(dir, args, options) {
   const originalExitCode = process.exitCode;
   const originalStdinIsTTY = process.stdin.isTTY;
   const originalStdoutIsTTY = process.stdout.isTTY;
-  const originalEnv = process.env;
 
   process.chdir(normalizeDir(dir));
   process.stdin.isTTY = !!options.isTTY;
   process.stdout.isTTY = !!options.stdoutIsTTY;
   process.argv = ["path/to/node", "path/to/prettier/bin"].concat(args);
-  process.env = { ...process.env, ...options.env };
 
   jest.resetModules();
 
@@ -76,17 +74,17 @@ function runPrettier(dir, args, options) {
   // production build everything is bundled into one file so there is no
   // "get-stream" module to mock.
   jest
-    .spyOn(require(thirdParty), "getStream")
+    .spyOn(require(thirdParty), "getStdin")
     .mockImplementation(() => SynchronousPromise.resolve(options.input || ""));
   jest
     .spyOn(require(thirdParty), "isCI")
-    .mockImplementation(() => process.env.CI);
+    .mockImplementation(() => !!options.ci);
   jest
     .spyOn(require(thirdParty), "cosmiconfig")
     .mockImplementation((moduleName, options) =>
       require("cosmiconfig").cosmiconfig(moduleName, {
         ...options,
-        stopDir: __dirname,
+        stopDir: path.join(__dirname, "cli"),
       })
     );
   jest
@@ -94,7 +92,7 @@ function runPrettier(dir, args, options) {
     .mockImplementation((moduleName, options) =>
       require("cosmiconfig").cosmiconfigSync(moduleName, {
         ...options,
-        stopDir: __dirname,
+        stopDir: path.join(__dirname, "cli"),
       })
     );
   jest
@@ -113,7 +111,6 @@ function runPrettier(dir, args, options) {
     process.exitCode = originalExitCode;
     process.stdin.isTTY = originalStdinIsTTY;
     process.stdout.isTTY = originalStdoutIsTTY;
-    process.env = originalEnv;
     jest.restoreAllMocks();
   }
 

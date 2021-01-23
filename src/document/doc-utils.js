@@ -1,12 +1,17 @@
 "use strict";
 
+const { literalline, concat } = require("./doc-builders");
+
+const isConcat = (doc) => Array.isArray(doc) || (doc && doc.type === "concat");
+const getDocParts = (doc) => (Array.isArray(doc) ? doc : doc.parts);
+
 // Using a unique object to compare by reference.
 const traverseDocOnExitStackMarker = {};
 
 function traverseDoc(doc, onEnter, onExit, shouldTraverseConditionalGroups) {
   const docsStack = [doc];
 
-  while (docsStack.length !== 0) {
+  while (docsStack.length > 0) {
     const doc = docsStack.pop();
 
     if (doc === traverseDocOnExitStackMarker) {
@@ -14,26 +19,23 @@ function traverseDoc(doc, onEnter, onExit, shouldTraverseConditionalGroups) {
       continue;
     }
 
-    let shouldRecurse = true;
-    if (onEnter) {
-      if (onEnter(doc) === false) {
-        shouldRecurse = false;
-      }
-    }
-
     if (onExit) {
-      docsStack.push(doc);
-      docsStack.push(traverseDocOnExitStackMarker);
+      docsStack.push(doc, traverseDocOnExitStackMarker);
     }
 
-    if (shouldRecurse) {
+    if (
+      // Should Recurse
+      !onEnter ||
+      onEnter(doc) !== false
+    ) {
       // When there are multiple parts to process,
       // the parts need to be pushed onto the stack in reverse order,
       // so that they are processed in the original order
       // when the stack is popped.
-      if (doc.type === "concat" || doc.type === "fill") {
-        for (let ic = doc.parts.length, i = ic - 1; i >= 0; --i) {
-          docsStack.push(doc.parts[i]);
+      if (isConcat(doc) || doc.type === "fill") {
+        const parts = getDocParts(doc);
+        for (let ic = parts.length, i = ic - 1; i >= 0; --i) {
+          docsStack.push(parts[i]);
         }
       } else if (doc.type === "if-break") {
         if (doc.flatContents) {
@@ -58,7 +60,9 @@ function traverseDoc(doc, onEnter, onExit, shouldTraverseConditionalGroups) {
 }
 
 function mapDoc(doc, cb) {
-  if (doc.type === "concat" || doc.type === "fill") {
+  if (Array.isArray(doc)) {
+    return cb(doc.map((part) => mapDoc(part, cb)));
+  } else if (doc.type === "concat" || doc.type === "fill") {
     const parts = doc.parts.map((part) => mapDoc(part, cb));
     return cb({ ...doc, parts });
   } else if (doc.type === "if-break") {
@@ -182,30 +186,190 @@ function removeLines(doc) {
   return mapDoc(doc, removeLinesFn);
 }
 
-function stripTrailingHardline(doc) {
-  // HACK remove ending hardline, original PR: #1984
-  if (doc.type === "concat" && doc.parts.length !== 0) {
-    const lastPart = doc.parts[doc.parts.length - 1];
-    if (lastPart.type === "concat") {
-      if (
-        lastPart.parts.length === 2 &&
-        lastPart.parts[0].hard &&
-        lastPart.parts[1].type === "break-parent"
-      ) {
-        return { type: "concat", parts: doc.parts.slice(0, -1) };
-      }
+const isHardline = (doc, nextDoc) =>
+  doc &&
+  doc.type === "line" &&
+  doc.hard &&
+  nextDoc &&
+  nextDoc.type === "break-parent";
+function stripDocTrailingHardlineFromDoc(doc) {
+  if (!doc) {
+    return doc;
+  }
 
-      return {
-        type: "concat",
-        parts: doc.parts.slice(0, -1).concat(stripTrailingHardline(lastPart)),
-      };
+  if (isConcat(doc) || doc.type === "fill") {
+    const parts = getDocParts(doc);
+
+    while (parts.length > 1 && isHardline(...parts.slice(-2))) {
+      parts.length -= 2;
+    }
+
+    if (parts.length > 0) {
+      const lastPart = stripDocTrailingHardlineFromDoc(parts[parts.length - 1]);
+      parts[parts.length - 1] = lastPart;
+    }
+    return Array.isArray(doc) ? parts : { ...doc, parts };
+  }
+
+  switch (doc.type) {
+    case "align":
+    case "indent":
+    case "group":
+    case "line-suffix": {
+      const contents = stripDocTrailingHardlineFromDoc(doc.contents);
+      return { ...doc, contents };
+    }
+    case "if-break": {
+      const breakContents = stripDocTrailingHardlineFromDoc(doc.breakContents);
+      const flatContents = stripDocTrailingHardlineFromDoc(doc.flatContents);
+      return { ...doc, breakContents, flatContents };
     }
   }
 
   return doc;
 }
 
+function stripTrailingHardline(doc) {
+  // HACK remove ending hardline, original PR: #1984
+  return stripDocTrailingHardlineFromDoc(cleanDoc(doc));
+}
+
+function cleanDocFn(doc) {
+  switch (doc.type) {
+    case "fill":
+      if (doc.parts.length === 0 || doc.parts.every((part) => part === "")) {
+        return "";
+      }
+      break;
+    case "group":
+      if (!doc.contents && !doc.id && !doc.break && !doc.expandedStates) {
+        return "";
+      }
+      // Remove nested only group
+      if (
+        doc.contents.type === "group" &&
+        doc.contents.id === doc.id &&
+        doc.contents.break === doc.break &&
+        doc.contents.expandedStates === doc.expandedStates
+      ) {
+        return doc.contents;
+      }
+      break;
+    case "align":
+    case "indent":
+    case "line-suffix":
+      if (!doc.contents) {
+        return "";
+      }
+      break;
+    case "if-break":
+      if (!doc.flatContents && !doc.breakContents) {
+        return "";
+      }
+      break;
+  }
+
+  if (!isConcat(doc)) {
+    return doc;
+  }
+
+  const parts = [];
+  for (const part of getDocParts(doc)) {
+    if (!part) {
+      continue;
+    }
+    const [currentPart, ...restParts] = isConcat(part)
+      ? getDocParts(part)
+      : [part];
+    if (
+      typeof currentPart === "string" &&
+      typeof parts[parts.length - 1] === "string"
+    ) {
+      parts[parts.length - 1] += currentPart;
+    } else {
+      parts.push(currentPart);
+    }
+    parts.push(...restParts);
+  }
+
+  if (parts.length === 0) {
+    return "";
+  }
+
+  if (parts.length === 1) {
+    return parts[0];
+  }
+  return Array.isArray(doc) ? parts : { ...doc, parts };
+}
+// A safer version of `normalizeDoc`
+// - `normalizeDoc` concat strings and flat "concat" in `fill`, while `cleanDoc` don't
+// - On `concat` object, `normalizeDoc` always return object with `parts`, `cleanDoc` may return strings
+// - `cleanDoc` also remove nested `group`s and empty `fill`/`align`/`indent`/`line-suffix`/`if-break` if possible
+function cleanDoc(doc) {
+  return mapDoc(doc, (currentDoc) => cleanDocFn(currentDoc));
+}
+
+function normalizeParts(parts) {
+  const newParts = [];
+
+  const restParts = parts.filter(Boolean);
+  while (restParts.length > 0) {
+    const part = restParts.shift();
+
+    if (!part) {
+      continue;
+    }
+
+    if (isConcat(part)) {
+      restParts.unshift(...getDocParts(part));
+      continue;
+    }
+
+    if (
+      newParts.length > 0 &&
+      typeof newParts[newParts.length - 1] === "string" &&
+      typeof part === "string"
+    ) {
+      newParts[newParts.length - 1] += part;
+      continue;
+    }
+
+    newParts.push(part);
+  }
+
+  return newParts;
+}
+
+function normalizeDoc(doc) {
+  return mapDoc(doc, (currentDoc) => {
+    if (Array.isArray(currentDoc)) {
+      return normalizeParts(currentDoc);
+    }
+    if (!currentDoc.parts) {
+      return currentDoc;
+    }
+    return {
+      ...currentDoc,
+      parts: normalizeParts(currentDoc.parts),
+    };
+  });
+}
+
+function replaceNewlinesWithLiterallines(doc) {
+  return mapDoc(doc, (currentDoc) =>
+    typeof currentDoc === "string" && currentDoc.includes("\n")
+      ? concat(
+          currentDoc
+            .split(/(\n)/g)
+            .map((v, i) => (i % 2 === 0 ? v : literalline))
+        )
+      : currentDoc
+  );
+}
+
 module.exports = {
+  isConcat,
+  getDocParts,
   isEmpty,
   willBreak,
   isLineNext,
@@ -215,4 +379,8 @@ module.exports = {
   propagateBreaks,
   removeLines,
   stripTrailingHardline,
+  normalizeParts,
+  normalizeDoc,
+  cleanDoc,
+  replaceNewlinesWithLiterallines,
 };

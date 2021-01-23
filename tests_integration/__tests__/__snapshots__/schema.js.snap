@@ -35,6 +35,24 @@ Object {
 This option cannot be used with --range-start and --range-end.",
           "type": "integer",
         },
+        "embeddedLanguageFormatting": Object {
+          "default": "auto",
+          "description": "Control how Prettier formats quoted code embedded in the file.",
+          "oneOf": Array [
+            Object {
+              "description": "Format embedded code if Prettier can automatically identify it.",
+              "enum": Array [
+                "auto",
+              ],
+            },
+            Object {
+              "description": "Never automatically format embedded code.",
+              "enum": Array [
+                "off",
+              ],
+            },
+          ],
+        },
         "endOfLine": Object {
           "default": "lf",
           "description": "Which end of line characters to apply.",
@@ -142,6 +160,18 @@ This option cannot be used with --range-start and --range-end.",
               "description": "TypeScript",
               "enum": Array [
                 "typescript",
+              ],
+            },
+            Object {
+              "description": "JavaScript",
+              "enum": Array [
+                "espree",
+              ],
+            },
+            Object {
+              "description": "JavaScript",
+              "enum": Array [
+                "meriyah",
               ],
             },
             Object {
